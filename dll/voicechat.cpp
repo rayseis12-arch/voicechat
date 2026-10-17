@@ -14,7 +14,9 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 
+#include <algorithm>
 #include <atomic>
+#include <utility>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -207,14 +209,10 @@ static DWORD WINAPI BootThread(LPVOID) {
     // Espera a que el cliente cree su ventana y su estado Lua
     while (!FindWindowA("GxWindowClass", NULL)) Sleep(250);
     Sleep(3000);
-    __try {
-        FrameScript_RegisterFunction("VC_Init", Lua_Init);
-        FrameScript_RegisterFunction("VC_SetRoom", Lua_SetRoom);
-        FrameScript_RegisterFunction("VC_PTT", Lua_PTT);
-        FrameScript_RegisterFunction("VC_Speaking", Lua_Speaking);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        MessageBoxA(NULL, "VoiceChat: no se pudieron registrar las funciones Lua (direcciones incorrectas?)", "VoiceChat", MB_OK);
-    }
+    FrameScript_RegisterFunction("VC_Init", Lua_Init);
+    FrameScript_RegisterFunction("VC_SetRoom", Lua_SetRoom);
+    FrameScript_RegisterFunction("VC_PTT", Lua_PTT);
+    FrameScript_RegisterFunction("VC_Speaking", Lua_Speaking);
     return 0;
 }
 
