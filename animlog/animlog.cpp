@@ -1,6 +1,6 @@
 // animlog.dll - registra llamadas a funciones de animacion/hechizos del cliente Turtle WoW (1.12.1.5875)
 // NO modifica el juego: solo escribe anim_log.txt (en la carpeta del juego).
-// EXPERIMENTAL: F1 omite ClearSlot, F2 omite SetActiveSpell (pitido agudo = ON, grave = OFF). Pueden dejar efectos visuales colgados.
+// EXPERIMENTAL: F1 omite ClearSlot, F2 omite SetActiveSpell, F3 omite ForcedAnim? (pitido agudo = ON, grave = OFF).
 // Teclas: F8 = iniciar/parar registro, F9 = marca, F7 = AnimIdToIndex (sin repetidos), F6 = detalle de auras (ruidoso)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -30,18 +30,18 @@ static const char* NAMES[] = {
 extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2) {
     if (!g_on || !g_f) return;
     if (id >= 5 && id <= 9 && !g_detail) return;   // ruido de otras unidades (auras, ForcedAnim)
-    if (id == 0) {                                  // AnimIdToIndex: solo CAMBIOS de animacion por unidad (F7)
+    if (id == 0) {                                  // AnimIdToIndex: CAMBIOS de animacion por unidad (F7)
         if (!g_anim) return;
         if ((edx & 0xFFF) != 0x034) return;         // solo la consulta de "animacion pedida"
-        if (a2 == 0x00C7CB0C) return;               // consulta por defecto, no es un estado real
-        uint32_t unit = edx & 0xFFFFF000;           // identifica la unidad
-        uint32_t h = unit; h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
-        static struct { uint32_t unit; uint32_t cur; bool used; } st[1024];
-        auto& e = st[h & 1023];
+        if (a2 < 0x01000000 || (a2 & 7) != 0) return;
+        uint32_t unit = a2;
+        uint32_t h = unit * 2654435761u; h ^= h >> 15;
+        static struct { uint32_t unit; uint32_t cur; bool used; } st[2048];
+        auto& e = st[h & 2047];
         if (e.used && e.unit != unit) e.used = false;
         if (!e.used) { e.used = true; e.unit = unit; e.cur = 0; }
         if (e.cur == ecx) return;                   // sin cambio: no se registra
-        fprintf(g_f, "%lu ANIM unit=%08X %u -> %u\n", (unsigned long)GetTickCount(), unit, e.cur, ecx);
+        fprintf(g_f, "%lu ANIM obj=%08X modelo=%04X %u -> %u\n", (unsigned long)GetTickCount(), unit, edx >> 16, e.cur, ecx);
         e.cur = ecx;
         return;
     }
@@ -79,10 +79,10 @@ asm(".globl _detour" #N "\n" \
     "ret $" #POP "\n" \
     "1:\n" \
     "jmp *_g_orig+" #N "*4\n");
-DETOUR(0) DETOUR_SKIP(1, 4) DETOUR_SKIP(2, 4) DETOUR(3) DETOUR(4) DETOUR(5) DETOUR(6) DETOUR(7) DETOUR(8) DETOUR(9)
+DETOUR(0) DETOUR_SKIP(1, 4) DETOUR_SKIP(2, 4) DETOUR(3) DETOUR(4) DETOUR(5) DETOUR(6) DETOUR(7) DETOUR(8) DETOUR_SKIP(9, 4)
 
 static DWORD WINAPI KeyThread(LPVOID) {
-    bool f8 = false, f9 = false, f7 = false, f6 = false, f1 = false, f2 = false;
+    bool f8 = false, f9 = false, f7 = false, f6 = false, f1 = false, f2 = false, f3 = false;
     DWORD lastFlush = 0;
     for (;;) {
         bool a = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
@@ -91,8 +91,12 @@ static DWORD WINAPI KeyThread(LPVOID) {
         bool d = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
         bool k1 = (GetAsyncKeyState(VK_F1) & 0x8000) != 0;
         bool k2 = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
+        bool k3 = (GetAsyncKeyState(VK_F3) & 0x8000) != 0;
+        
         if (k1 && !f1) { g_skip[2] = !g_skip[2]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlot omitido: %s ----\n", g_skip[2] ? "ON" : "OFF"); Beep(g_skip[2] ? 1200 : 500, 120); }
         if (k2 && !f2) { g_skip[1] = !g_skip[1]; if (g_f) fprintf(g_f, "---- EXPERIMENTO SetActiveSpell omitido: %s ----\n", g_skip[1] ? "ON" : "OFF"); Beep(g_skip[1] ? 1200 : 500, 120); }
+        if (k3 && !f3) { g_skip[9] = !g_skip[9]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ForcedAnim omitido: %s ----\n", g_skip[9] ? "ON" : "OFF"); Beep(g_skip[9] ? 1200 : 500, 120); }
+        
         if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle auras %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }
         if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- AnimIdToIndex %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }
         if (a && !f8) {
@@ -100,7 +104,8 @@ static DWORD WINAPI KeyThread(LPVOID) {
             if (g_f) { fprintf(g_f, "---- registro %s ----\n", g_on ? "ACTIVADO" : "DETENIDO"); fflush(g_f); }
         }
         if (b && !f9 && g_f) { fprintf(g_f, "==== MARCA %lu ====\n", (unsigned long)GetTickCount()); }
-        f8 = a; f9 = b; f7 = c; f6 = d; f1 = k1; f2 = k2;
+        
+        f8 = a; f9 = b; f7 = c; f6 = d; f1 = k1; f2 = k2; f3 = k3;
         { DWORD nowT = GetTickCount(); if (g_f && g_on && nowT - lastFlush > 1000) { fflush(g_f); lastFlush = nowT; } }
         Sleep(30);
     }
@@ -109,7 +114,6 @@ static DWORD WINAPI KeyThread(LPVOID) {
 static HINSTANCE g_self = nullptr;
 
 static DWORD WINAPI Boot(LPVOID) {
-    // Crear el log YA, junto a la DLL, para saber si se cargo
     char path[MAX_PATH] = {0};
     GetModuleFileNameA(g_self, path, MAX_PATH);
     char* slash = strrchr(path, '\\');
@@ -120,7 +124,6 @@ static DWORD WINAPI Boot(LPVOID) {
     setvbuf(g_f, NULL, _IOFBF, 1 << 16);
     fprintf(g_f, "animlog.dll cargada. Esperando al juego...\n");
     fflush(g_f);
-    // Espera la ventana (maximo 40 s) y luego continua igualmente
     for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
     Sleep(5000);
     fprintf(g_f, "Instalando hooks...\n");
@@ -138,7 +141,7 @@ static DWORD WINAPI Boot(LPVOID) {
         fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
     }
     MH_EnableHook(MH_ALL_HOOKS);
-    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex, F6 = detalle auras, F1 = EXP ClearSlot, F2 = EXP SetActiveSpell.\n");
+    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex, F6 = detalle auras, F1 = EXP ClearSlot, F2 = EXP SetActiveSpell, F3 = EXP ForcedAnim.\n");
     fflush(g_f);
     CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
     return 0;
@@ -148,4 +151,3 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) { g_self = h; DisableThreadLibraryCalls(h); CreateThread(NULL, 0, Boot, NULL, 0, NULL); }
     return TRUE;
 }
-
