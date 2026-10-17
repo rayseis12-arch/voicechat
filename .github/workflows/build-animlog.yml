@@ -1,0 +1,32 @@
+name: Build animlog.dll
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          update: true
+          install: >-
+            mingw-w64-i686-gcc
+            git
+            file
+      - name: Descargar MinHook
+        run: git clone --depth 1 https://github.com/TsudaKageyu/minhook.git
+      - name: Compilar animlog.dll (32 bits)
+        run: |
+          gcc -O2 -c minhook/src/buffer.c minhook/src/hook.c minhook/src/trampoline.c minhook/src/hde/hde32.c -Iminhook/include -Iminhook/src
+          g++ -O2 -shared -static -o animlog.dll animlog/animlog.cpp buffer.o hook.o trampoline.o hde32.o -Iminhook/include
+          file animlog.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: animlog-dll
+          path: animlog.dll
