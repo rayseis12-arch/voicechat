@@ -1,5 +1,6 @@
 // animlog.dll - registra llamadas a funciones de animacion/hechizos del cliente Turtle WoW (1.12.1.5875)
 // NO modifica el juego: solo escribe anim_log.txt (en la carpeta del juego).
+// EXPERIMENTAL: F1 omite ClearSlot, F2 omite SetActiveSpell (pitido agudo = ON, grave = OFF). Pueden dejar efectos visuales colgados.
 // Teclas: F8 = iniciar/parar registro, F9 = marca, F7 = AnimIdToIndex (sin repetidos), F6 = detalle de auras (ruidoso)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -10,6 +11,7 @@
 
 extern "C" {
     void* g_orig[16];
+    volatile unsigned char g_skip[16];
     void detour0(); void detour1(); void detour2(); void detour3(); void detour4();
     void detour5(); void detour6(); void detour7(); void detour8(); void detour9();
 }
@@ -27,15 +29,21 @@ static const char* NAMES[] = {
 // Se llama desde el detour: no depende del numero real de argumentos
 extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2) {
     if (!g_on || !g_f) return;
-    if (id >= 5 && id <= 8 && !g_detail) return;   // ruido de auras de otras unidades
-    if (id == 0) {                                  // AnimIdToIndex: solo si F7 esta activo y sin repetidos
+    if (id >= 5 && id <= 9 && !g_detail) return;   // ruido de otras unidades (auras, ForcedAnim)
+    if (id == 0) {                                  // AnimIdToIndex: solo CAMBIOS de animacion por unidad (F7)
         if (!g_anim) return;
-        static struct { uint32_t ecx, edx; DWORD t; bool used; } seen[512];
-        uint32_t h = (ecx * 2654435761u) ^ (edx * 40503u);
-        auto& e = seen[h & 511];
-        DWORD now = GetTickCount();
-        if (e.used && e.ecx == ecx && e.edx == edx && now - e.t < 1500) return;
-        e.used = true; e.ecx = ecx; e.edx = edx; e.t = now;
+        if ((edx & 0xFFF) != 0x034) return;         // solo la consulta de "animacion pedida"
+        if (a2 == 0x00C7CB0C) return;               // consulta por defecto, no es un estado real
+        uint32_t unit = edx & 0xFFFFF000;           // identifica la unidad
+        uint32_t h = unit; h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
+        static struct { uint32_t unit; uint32_t cur; bool used; } st[1024];
+        auto& e = st[h & 1023];
+        if (e.used && e.unit != unit) e.used = false;
+        if (!e.used) { e.used = true; e.unit = unit; e.cur = 0; }
+        if (e.cur == ecx) return;                   // sin cambio: no se registra
+        fprintf(g_f, "%lu ANIM unit=%08X %u -> %u\n", (unsigned long)GetTickCount(), unit, e.cur, ecx);
+        e.cur = ecx;
+        return;
     }
     fprintf(g_f, "%lu %s ecx=%08X edx=%08X a1=%08X a2=%08X\n",
             (unsigned long)GetTickCount(), NAMES[id], ecx, edx, a1, a2);
@@ -54,24 +62,46 @@ asm(".globl _detour" #N "\n" \
     "addl $20, %esp\n" \
     "popal\n popfl\n" \
     "jmp *_g_orig+" #N "*4\n");
-DETOUR(0) DETOUR(1) DETOUR(2) DETOUR(3) DETOUR(4) DETOUR(5) DETOUR(6) DETOUR(7) DETOUR(8) DETOUR(9)
+#define DETOUR_SKIP(N, POP) \
+asm(".globl _detour" #N "\n" \
+    "_detour" #N ":\n" \
+    "pushfl\n pushal\n" \
+    "pushl 44(%esp)\n" \
+    "pushl 44(%esp)\n" \
+    "pushl 28(%esp)\n" \
+    "pushl 36(%esp)\n" \
+    "pushl $" #N "\n" \
+    "call _LogCall\n" \
+    "addl $20, %esp\n" \
+    "popal\n popfl\n" \
+    "cmpb $0, _g_skip+" #N "\n" \
+    "je 1f\n" \
+    "ret $" #POP "\n" \
+    "1:\n" \
+    "jmp *_g_orig+" #N "*4\n");
+DETOUR(0) DETOUR_SKIP(1, 4) DETOUR_SKIP(2, 4) DETOUR(3) DETOUR(4) DETOUR(5) DETOUR(6) DETOUR(7) DETOUR(8) DETOUR(9)
 
 static DWORD WINAPI KeyThread(LPVOID) {
-    bool f8 = false, f9 = false, f7 = false, f6 = false;
+    bool f8 = false, f9 = false, f7 = false, f6 = false, f1 = false, f2 = false;
+    DWORD lastFlush = 0;
     for (;;) {
         bool a = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
         bool b = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
         bool c = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
         bool d = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
+        bool k1 = (GetAsyncKeyState(VK_F1) & 0x8000) != 0;
+        bool k2 = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
+        if (k1 && !f1) { g_skip[2] = !g_skip[2]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlot omitido: %s ----\n", g_skip[2] ? "ON" : "OFF"); Beep(g_skip[2] ? 1200 : 500, 120); }
+        if (k2 && !f2) { g_skip[1] = !g_skip[1]; if (g_f) fprintf(g_f, "---- EXPERIMENTO SetActiveSpell omitido: %s ----\n", g_skip[1] ? "ON" : "OFF"); Beep(g_skip[1] ? 1200 : 500, 120); }
         if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle auras %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }
         if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- AnimIdToIndex %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }
         if (a && !f8) {
             g_on = !g_on;
             if (g_f) { fprintf(g_f, "---- registro %s ----\n", g_on ? "ACTIVADO" : "DETENIDO"); fflush(g_f); }
         }
-        if (b && !f9 && g_f) { fprintf(g_f, "==== MARCA %lu ====\n", (unsigned long)GetTickCount()); fflush(g_f); }
-        f8 = a; f9 = b; f7 = c; f6 = d;
-        if (g_f && g_on) fflush(g_f);
+        if (b && !f9 && g_f) { fprintf(g_f, "==== MARCA %lu ====\n", (unsigned long)GetTickCount()); }
+        f8 = a; f9 = b; f7 = c; f6 = d; f1 = k1; f2 = k2;
+        { DWORD nowT = GetTickCount(); if (g_f && g_on && nowT - lastFlush > 1000) { fflush(g_f); lastFlush = nowT; } }
         Sleep(30);
     }
 }
@@ -87,6 +117,7 @@ static DWORD WINAPI Boot(LPVOID) {
     strcat(path, "anim_log.txt");
     g_f = fopen(path, "a");
     if (!g_f) return 0;
+    setvbuf(g_f, NULL, _IOFBF, 1 << 16);
     fprintf(g_f, "animlog.dll cargada. Esperando al juego...\n");
     fflush(g_f);
     // Espera la ventana (maximo 40 s) y luego continua igualmente
@@ -107,7 +138,7 @@ static DWORD WINAPI Boot(LPVOID) {
         fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
     }
     MH_EnableHook(MH_ALL_HOOKS);
-    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex, F6 = detalle auras.\n");
+    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex, F6 = detalle auras, F1 = EXP ClearSlot, F2 = EXP SetActiveSpell.\n");
     fflush(g_f);
     CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
     return 0;
