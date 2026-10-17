@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
+#include <cstring>
 #include <cstdint>
 #include "MinHook.h"
 
@@ -57,11 +58,24 @@ static DWORD WINAPI KeyThread(LPVOID) {
     }
 }
 
+static HINSTANCE g_self = nullptr;
+
 static DWORD WINAPI Boot(LPVOID) {
-    while (!FindWindowA("GxWindowClass", NULL)) Sleep(250);
-    Sleep(5000);
-    g_f = fopen("anim_log.txt", "a");
+    // Crear el log YA, junto a la DLL, para saber si se cargo
+    char path[MAX_PATH] = {0};
+    GetModuleFileNameA(g_self, path, MAX_PATH);
+    char* slash = strrchr(path, '\\');
+    if (slash) *(slash + 1) = 0;
+    strcat(path, "anim_log.txt");
+    g_f = fopen(path, "a");
     if (!g_f) return 0;
+    fprintf(g_f, "animlog.dll cargada. Esperando al juego...\n");
+    fflush(g_f);
+    // Espera la ventana (maximo 40 s) y luego continua igualmente
+    for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
+    Sleep(5000);
+    fprintf(g_f, "Instalando hooks...\n");
+    fflush(g_f);
     if (MH_Initialize() != MH_OK) return 0;
     struct { uintptr_t addr; void* det; } T[5] = {
         { 0x00710310, (void*)detour0 }, { 0x005FF0C0, (void*)detour1 },
@@ -80,6 +94,6 @@ static DWORD WINAPI Boot(LPVOID) {
 }
 
 BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID) {
-    if (reason == DLL_PROCESS_ATTACH) { DisableThreadLibraryCalls(h); CreateThread(NULL, 0, Boot, NULL, 0, NULL); }
+    if (reason == DLL_PROCESS_ATTACH) { g_self = h; DisableThreadLibraryCalls(h); CreateThread(NULL, 0, Boot, NULL, 0, NULL); }
     return TRUE;
 }
