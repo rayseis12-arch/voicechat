@@ -9,8 +9,9 @@
 #include "MinHook.h"
 
 extern "C" {
-    void* g_orig[8];
+    void* g_orig[16];
     void detour0(); void detour1(); void detour2(); void detour3(); void detour4();
+    void detour5(); void detour6(); void detour7(); void detour8(); void detour9();
 }
 
 static FILE* g_f = nullptr;
@@ -18,7 +19,8 @@ static volatile bool g_on = false;
 static volatile bool g_anim = false;   // F7: registrar tambien AnimIdToIndex (muy ruidoso)
 static const char* NAMES[] = {
     "AnimIdToIndex(00710310)", "SetActiveSpell(005ff0c0)", "ClearSlot(005ff290)",
-    "SpellStart(00612320)", "UnitReset(0060abe0)"
+    "SpellStart(00612320)", "UnitReset(0060abe0)",
+    "CancelVisual?(0060edf0)", "ClearSlotA(0060d150)", "ClearSlotB(005ff320)", "ClearSlotC(00614150)", "ForcedAnim?(0060ce70)"
 };
 
 // Se llama desde el detour: no depende del numero real de argumentos
@@ -42,7 +44,7 @@ asm(".globl _detour" #N "\n" \
     "addl $20, %esp\n" \
     "popal\n popfl\n" \
     "jmp *_g_orig+" #N "*4\n");
-DETOUR(0) DETOUR(1) DETOUR(2) DETOUR(3) DETOUR(4)
+DETOUR(0) DETOUR(1) DETOUR(2) DETOUR(3) DETOUR(4) DETOUR(5) DETOUR(6) DETOUR(7) DETOUR(8) DETOUR(9)
 
 static DWORD WINAPI KeyThread(LPVOID) {
     bool f8 = false, f9 = false, f7 = false;
@@ -81,12 +83,14 @@ static DWORD WINAPI Boot(LPVOID) {
     fprintf(g_f, "Instalando hooks...\n");
     fflush(g_f);
     if (MH_Initialize() != MH_OK) return 0;
-    struct { uintptr_t addr; void* det; } T[5] = {
+    struct { uintptr_t addr; void* det; } T[10] = {
         { 0x00710310, (void*)detour0 }, { 0x005FF0C0, (void*)detour1 },
         { 0x005FF290, (void*)detour2 }, { 0x00612320, (void*)detour3 },
-        { 0x0060ABE0, (void*)detour4 }
+        { 0x0060ABE0, (void*)detour4 }, { 0x0060EDF0, (void*)detour5 },
+        { 0x0060D150, (void*)detour6 }, { 0x005FF320, (void*)detour7 },
+        { 0x00614150, (void*)detour8 }, { 0x0060CE70, (void*)detour9 }
     };
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 10; i++) {
         MH_STATUS s = MH_CreateHook((LPVOID)T[i].addr, T[i].det, &g_orig[i]);
         fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
     }
