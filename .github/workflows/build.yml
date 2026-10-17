@@ -1,0 +1,40 @@
+name: Build voicechat.dll
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          update: true
+          install: >-
+            mingw-w64-i686-gcc
+            mingw-w64-i686-opus
+            curl
+            file
+
+      - name: Descargar miniaudio.h
+        run: curl -L -o dll/miniaudio.h https://raw.githubusercontent.com/mackron/miniaudio/master/miniaudio.h
+
+      - name: Compilar voicechat.dll (32 bits)
+        run: |
+          cd dll
+          g++ -O2 -std=c++17 -shared -static -o voicechat.dll voicechat.cpp -I. -lopus -lws2_32 -lole32
+          file voicechat.dll
+
+      - name: Subir DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: voicechat-dll
+          path: dll/voicechat.dll
