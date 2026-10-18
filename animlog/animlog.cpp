@@ -1,4 +1,4 @@
-// animlog.dll - Detour Seguro en 00712475 con Modificación de Flags M2 (Turtle WoW 1.12.1.5875)
+// animlog.dll - Bloqueo de ClearSlot / CancelVisual (Turtle WoW 1.12.1.5875)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
@@ -11,14 +11,13 @@ extern "C" {
     volatile unsigned char g_skip[16];
     void detour0(); void detour1(); void detour2(); void detour3(); void detour4();
     void detour5(); void detour6(); void detour7(); void detour8(); void detour9();
-    void detour_caller();
 }
 
 static FILE* g_f = nullptr;
 static volatile bool g_on = false;
 static volatile bool g_detail = false; 
 static volatile bool g_anim = false;   
-static volatile bool g_overrideActive = true;
+static volatile bool g_blockClearSlot = true; // Interruptor para bloquear ClearSlot
 
 static const char* NAMES[] = {
     "AnimIdToIndex(00710310)", "SetActiveSpell(005ff0c0)", "ClearSlot(005ff290)",
@@ -26,51 +25,27 @@ static const char* NAMES[] = {
     "CancelVisual?(0060edf0)", "ClearSlotA(0060d150)", "ClearSlotB(005ff320)", "ClearSlotC(00614150)", "ForcedAnim?(0060ce70)"
 };
 
-typedef void (__fastcall *CallerBlock_t)();
-static CallerBlock_t g_origCallerBlock = nullptr;
+// Función de filtro central que decide si permitimos o bloqueamos la limpieza de la ranura visual
+extern "C" __attribute__((used)) uint32_t FilterCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2, uint32_t caller) {
+    // Si es ClearSlot (id == 2) o CancelVisual (id == 5) y el bloqueo está activo
+    if ((id == 2 || id == 5) && g_blockClearSlot) {
+        if (g_f && g_on) {
+            fprintf(g_f, "%lu [BLOQUEO VISUAL] Se evitó limpieza de ranura (%s) desde caller=00%06X (obj=%08X)\n", 
+                    (unsigned long)GetTickCount(), NAMES[id], caller, ecx);
+        }
+        // Retornamos 1 para saltarnos la ejecución de la función original y preservar la animación
+        return 1; 
+    }
 
-extern "C" __attribute__((used)) void OnCallerTrigger(uint32_t currentEcx, uint32_t currentEbp) {
-    if (!g_overrideActive || !currentEcx) return;
-    
-    uintptr_t unitObj = (uintptr_t)currentEcx;
-    if (!IsBadReadPtr((void*)unitObj, sizeof(uintptr_t))) {
-        uint32_t* pAnimFlags = (uint32_t*)(unitObj + 0xD8); 
-        if (!IsBadWritePtr(pAnimFlags, sizeof(uint32_t))) {
-            uint32_t oldFlags = *pAnimFlags;
-            *pAnimFlags |= 0x00000010; 
-            
-            if (g_f && g_on) {
-                fprintf(g_f, "%lu [FLAGS M2] Se forzó prioridad visual en ECX=%08X (Flags: %08X -> %08X)\n", 
-                        (unsigned long)GetTickCount(), currentEcx, oldFlags, *pAnimFlags);
-            }
+    if (g_on && g_f) {
+        if (id == 0 && g_anim) {
+            fprintf(g_f, "%lu ANIM_CALLER obj=%08X anim_id=%08X caller=00%06X\n", (unsigned long)GetTickCount(), ecx, edx, caller);
+        } else if (id >= 5 && id <= 9 && g_detail) {
+            fprintf(g_f, "%lu %s ecx=%08X edx=%08X a1=%08X a2=%08X caller=00%06X\n",
+                    (unsigned long)GetTickCount(), NAMES[id], ecx, edx, a1, a2, caller);
         }
     }
-}
-
-asm(
-    ".globl _detour_caller\n"
-    "_detour_caller:\n"
-    "pushfl\n pushal\n"
-    "pushl %ebp\n"
-    "pushl %ecx\n"
-    "call _OnCallerTrigger\n"
-    "addl $8, %esp\n"
-    "popal\n popfl\n"
-    "movl -12(%ebp), %ecx\n"
-    "xorl %edx, %edx\n"
-    "pushl $0x0071247A\n"
-    "ret\n"
-);
-
-extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2, uint32_t caller) {
-    if (!g_on || !g_f) return;
-    if (id == 0 && g_anim) {
-        fprintf(g_f, "%lu ANIM_CALLER obj=%08X anim_id=%08X caller=00%06X\n", (unsigned long)GetTickCount(), ecx, edx, caller);
-        return;
-    }
-    if (id >= 5 && id <= 9 && !g_detail) return; 
-    fprintf(g_f, "%lu %s ecx=%08X edx=%08X a1=%08X a2=%08X caller=00%06X\n",
-            (unsigned long)GetTickCount(), NAMES[id], ecx, edx, a1, a2, caller);
+    return 0;
 }
 
 #define DETOUR(N) \
@@ -84,10 +59,16 @@ asm(".globl _detour" #N "\n" \
     "pushl 32(%esp)\n" \
     "pushl 40(%esp)\n" \
     "pushl $" #N "\n" \
-    "call _LogCall\n" \
+    "call _FilterCall\n" \
+    "cmpl $1, %eax\n" \
+    "je 2f\n" \
     "addl $24, %esp\n" \
     "popal\n popfl\n" \
-    "jmp *_g_orig+" #N "*4\n");
+    "jmp *_g_orig+" #N "*4\n" \
+    "2:\n" \
+    "addl $24, %esp\n" \
+    "popal\n popfl\n" \
+    "ret $4\n");
 
 #define DETOUR_SKIP(N, POP) \
 asm(".globl _detour" #N "\n" \
@@ -100,24 +81,26 @@ asm(".globl _detour" #N "\n" \
     "pushl 32(%esp)\n" \
     "pushl 40(%esp)\n" \
     "pushl $" #N "\n" \
-    "call _LogCall\n" \
+    "call _FilterCall\n" \
+    "cmpl $1, %eax\n" \
+    "je 2f\n" \
     "addl $24, %esp\n" \
     "popal\n popfl\n" \
-    "cmpb $0, _g_skip+" #N "\n" \
-    "je 1f\n" \
-    "ret $" #POP "\n" \
-    "1:\n" \
-    "jmp *_g_orig+" #N "*4\n");
+    "jmp *_g_orig+" #N "*4\n" \
+    "2:\n" \
+    "addl $24, %esp\n" \
+    "popal\n popfl\n" \
+    "ret $" #POP "\n");
 
 DETOUR(0) 
-DETOUR_SKIP(1, 4)   
-DETOUR_SKIP(2, 4)   
+DETOUR(1)   
+DETOUR(2)   // ClearSlot con soporte de bloqueo dinámico
 DETOUR(3) 
 DETOUR(4) 
-DETOUR(5) 
-DETOUR_SKIP(6, 4)   
+DETOUR(5)   // CancelVisual con soporte de bloqueo dinámico
+DETOUR(6)   
 DETOUR(7) 
-DETOUR_SKIP(8, 4)   
+DETOUR(8)   
 DETOUR(9) 
 
 static DWORD WINAPI KeyThread(LPVOID) {
@@ -130,7 +113,13 @@ static DWORD WINAPI KeyThread(LPVOID) {
         bool d = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
         
         if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle profundo %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }
-        if (c && !f7) { g_overrideActive = !g_overrideActive; if (g_f) { fprintf(g_f, "---- Intercepción 00712475 %s ----\n", g_overrideActive ? "ACTIVADA" : "DESACTIVADA"); fflush(g_f); } }
+        if (c && !f7) { 
+            g_blockClearSlot = !g_blockClearSlot; 
+            if (g_f) { 
+                fprintf(g_f, "---- Bloqueo de ClearSlot/CancelVisual %s ----\n", g_blockClearSlot ? "ACTIVADO" : "DESACTIVADO"); 
+                fflush(g_f); 
+            } 
+        }
         if (a && !f8) {
             g_on = !g_on;
             if (g_f) { fprintf(g_f, "---- registro %s ----\n", g_on ? "ACTIVADO" : "DETENIDO"); fflush(g_f); }
@@ -160,15 +149,12 @@ static DWORD WINAPI Boot(LPVOID) {
     g_f = fopen(path, "a");
     if (!g_f) return 0;
     setvbuf(g_f, NULL, _IOFBF, 1 << 16);
-    fprintf(g_f, "animlog.dll cargada (Modo Control de Flags M2 en 00712475). Esperando al juego...\n");
+    fprintf(g_f, "animlog.dll cargada (Modo Bloqueo de ClearSlot/CancelVisual activo). Esperando al juego...\n");
     fflush(g_f);
     for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
     Sleep(5000);
 
     if (MH_Initialize() != MH_OK) return 0;
-
-    MH_STATUS callerStatus = MH_CreateHook((LPVOID)0x00712475, (void*)detour_caller, (void**)&g_origCallerBlock);
-    fprintf(g_f, "hook en 00712475: %s\n", MH_StatusToString(callerStatus));
 
     struct { uintptr_t addr; void* det; } T[10] = {
         { 0x00710310, (void*)detour0 }, { 0x005FF0C0, (void*)detour1 },
@@ -182,7 +168,7 @@ static DWORD WINAPI Boot(LPVOID) {
         fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
     }
     MH_EnableHook(MH_ALL_HOOKS);
-    fprintf(g_f, "Listo. Hook seguro activado sobre 00712475.\n");
+    fprintf(g_f, "Listo. F7 alterna el bloqueo de ClearSlot en tiempo real.\n");
     fflush(g_f);
     CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
     return 0;
