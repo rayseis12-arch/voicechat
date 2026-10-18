@@ -1,4 +1,4 @@
-// animlog.dll - Bloqueo de ClearSlot / CancelVisual (Turtle WoW 1.12.1.5875)
+// animlog.dll - Bloqueo Dinámico Seguro (Turtle WoW 1.12.1.5875)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
@@ -17,7 +17,7 @@ static FILE* g_f = nullptr;
 static volatile bool g_on = false;
 static volatile bool g_detail = false; 
 static volatile bool g_anim = false;   
-static volatile bool g_blockClearSlot = true; // Interruptor para bloquear ClearSlot
+static volatile bool g_blockClearSlot = false; // Arranca DESACTIVADO para permitir carga limpia
 
 static const char* NAMES[] = {
     "AnimIdToIndex(00710310)", "SetActiveSpell(005ff0c0)", "ClearSlot(005ff290)",
@@ -25,15 +25,12 @@ static const char* NAMES[] = {
     "CancelVisual?(0060edf0)", "ClearSlotA(0060d150)", "ClearSlotB(005ff320)", "ClearSlotC(00614150)", "ForcedAnim?(0060ce70)"
 };
 
-// Función de filtro central que decide si permitimos o bloqueamos la limpieza de la ranura visual
 extern "C" __attribute__((used)) uint32_t FilterCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2, uint32_t caller) {
-    // Si es ClearSlot (id == 2) o CancelVisual (id == 5) y el bloqueo está activo
     if ((id == 2 || id == 5) && g_blockClearSlot) {
         if (g_f && g_on) {
             fprintf(g_f, "%lu [BLOQUEO VISUAL] Se evitó limpieza de ranura (%s) desde caller=00%06X (obj=%08X)\n", 
                     (unsigned long)GetTickCount(), NAMES[id], caller, ecx);
         }
-        // Retornamos 1 para saltarnos la ejecución de la función original y preservar la animación
         return 1; 
     }
 
@@ -94,10 +91,10 @@ asm(".globl _detour" #N "\n" \
 
 DETOUR(0) 
 DETOUR(1)   
-DETOUR(2)   // ClearSlot con soporte de bloqueo dinámico
+DETOUR(2)   
 DETOUR(3) 
 DETOUR(4) 
-DETOUR(5)   // CancelVisual con soporte de bloqueo dinámico
+DETOUR(5)   
 DETOUR(6)   
 DETOUR(7) 
 DETOUR(8)   
@@ -149,7 +146,7 @@ static DWORD WINAPI Boot(LPVOID) {
     g_f = fopen(path, "a");
     if (!g_f) return 0;
     setvbuf(g_f, NULL, _IOFBF, 1 << 16);
-    fprintf(g_f, "animlog.dll cargada (Modo Bloqueo de ClearSlot/CancelVisual activo). Esperando al juego...\n");
+    fprintf(g_f, "animlog.dll cargada (Bloqueo inicial desactivado para estabilidad). Esperando al juego...\n");
     fflush(g_f);
     for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
     Sleep(5000);
@@ -168,7 +165,7 @@ static DWORD WINAPI Boot(LPVOID) {
         fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
     }
     MH_EnableHook(MH_ALL_HOOKS);
-    fprintf(g_f, "Listo. F7 alterna el bloqueo de ClearSlot en tiempo real.\n");
+    fprintf(g_f, "Listo. Entra al juego con normalidad y usa F7 para alternar el bloqueo.\n");
     fflush(g_f);
     CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
     return 0;
