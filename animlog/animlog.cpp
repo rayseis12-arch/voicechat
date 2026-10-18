@@ -27,14 +27,14 @@ static const char* NAMES[] = {
 
 // Wrapper en C++ con convención estándar (__cdecl) para evitar problemas de decorado con __fastcall en MinGW
 extern "C" __attribute__((used)) int HandleAnimIdToIndex(uint32_t pThis, uint32_t animId) {
-    // Llamada a la función original usando el puntero original de MinHook
     typedef int (*Orig_t)(uint32_t, uint32_t);
     Orig_t origFunc = (Orig_t)g_orig[0];
     
     int realIndex = origFunc(pThis, animId);
 
-    if (g_filterActive && g_f && g_on && g_anim) {
-        fprintf(g_f, "%lu [ANIM INDEX] obj=%08X animId=%08X -> index=%d\n", (unsigned long)GetTickCount(), pThis, animId, realIndex);
+    // Volcado directo sin condiciones estrictas de F7 para ver qué animId desfilan
+    if (g_f && g_on) {
+        fprintf(g_f, "%lu [ANIM_INDEX_TRACE] obj=%08X animId=%08X -> index=%d\n", (unsigned long)GetTickCount(), pThis, animId, realIndex);
     }
 
     return realIndex;
