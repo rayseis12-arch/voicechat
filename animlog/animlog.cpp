@@ -1,7 +1,5 @@
-// animlog.dll - registra llamadas a funciones de animacion/hechizos del cliente Turtle WoW (1.12.1.5875)
-// NO modifica el juego: solo escribe anim_log.txt (en la carpeta del juego).
-// EXPERIMENTAL: F1 omite ClearSlot, F2 omite SetActiveSpell, F3 omite ClearSlotC, F4 omite ClearSlotA (pitido agudo = ON, grave = OFF).
-// Teclas: F8 = iniciar/parar registro, F9 = marca, F7 = AnimIdToIndex, F6 = detalle profundo (CancelVisual)
+// animlog.dll - Rastreador de emisores (Callers) para Turtle WoW (1.12.1.5875)
+// Teclas: F8 = iniciar/parar registro, F9 = marca, F7 = AnimIdToIndex, F6 = detalle profundo
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
@@ -18,61 +16,61 @@ extern "C" {
 
 static FILE* g_f = nullptr;
 static volatile bool g_on = false;
-static volatile bool g_detail = false; // F6: detalle profundo (CancelVisual, auras, etc.)
-static volatile bool g_anim = false;   // F7: registrar tambien AnimIdToIndex (muy ruidoso)
+static volatile bool g_detail = false; 
+static volatile bool g_anim = false;   
 static const char* NAMES[] = {
     "AnimIdToIndex(00710310)", "SetActiveSpell(005ff0c0)", "ClearSlot(005ff290)",
     "SpellStart(00612320)", "UnitReset(0060abe0)",
     "CancelVisual?(0060edf0)", "ClearSlotA(0060d150)", "ClearSlotB(005ff320)", "ClearSlotC(00614150)", "ForcedAnim?(0060ce70)"
 };
 
-// Se llama desde el detour: no depende del numero real de argumentos
-extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2) {
+// Modificamos LogCall para recibir tambien la direccion de retorno (caller) desde la pila
+extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2, uint32_t caller) {
     if (!g_on || !g_f) return;
-    if (id >= 5 && id <= 9 && !g_detail) return;   // ruido de otras unidades si F6 esta apagado
-    if (id == 0) {                                  // AnimIdToIndex: CAMBIOS de animacion por unidad (F7)
+    
+    // Si es AnimIdToIndex (id 0), ahora registraremos tambien el caller exacto para rastrear quien pide la animacion
+    if (id == 0) {
         if (!g_anim) return;
-        if ((edx & 0xFFF) != 0x034) return;         // solo la consulta de "animacion pedida"
-        if (a2 < 0x01000000 || (a2 & 7) != 0) return;
-        uint32_t unit = a2;
-        uint32_t h = unit * 2654435761u; h ^= h >> 15;
-        static struct { uint32_t unit; uint32_t cur; bool used; } st[2048];
-        auto& e = st[h & 2047];
-        if (e.used && e.unit != unit) e.used = false;
-        if (!e.used) { e.used = true; e.unit = unit; e.cur = 0; }
-        if (e.cur == ecx) return;                   // sin cambio: no se registra
-        fprintf(g_f, "%lu ANIM obj=%08X modelo=%04X %u -> %u\n", (unsigned long)GetTickCount(), unit, edx >> 16, e.cur, ecx);
-        e.cur = ecx;
+        fprintf(g_f, "%lu ANIM_CALLER obj=%08X anim_id=%08X caller=00%06X\n", (unsigned long)GetTickCount(), ecx, edx, caller);
         return;
     }
-    fprintf(g_f, "%lu %s ecx=%08X edx=%08X a1=%08X a2=%08X\n",
-            (unsigned long)GetTickCount(), NAMES[id], ecx, edx, a1, a2);
+    
+    if (id >= 5 && id <= 9 && !g_detail) return; 
+    
+    fprintf(g_f, "%lu %s ecx=%08X edx=%08X a1=%08X a2=%08X caller=00%06X\n",
+            (unsigned long)GetTickCount(), NAMES[id], ecx, edx, a1, a2, caller);
 }
 
+// Actualizamos el macro DETOUR para extraer la direccion de retorno (que esta en la pila antes de pushal/pushfl)
 #define DETOUR(N) \
 asm(".globl _detour" #N "\n" \
     "_detour" #N ":\n" \
+    "movl (%esp), %eax\n" /* Extraer direccion de retorno */ \
     "pushfl\n pushal\n" \
-    "pushl 44(%esp)\n" \
-    "pushl 44(%esp)\n" \
-    "pushl 28(%esp)\n" \
-    "pushl 36(%esp)\n" \
+    "pushl %eax\n" \
+    "pushl 48(%esp)\n" \
+    "pushl 48(%esp)\n" \
+    "pushl 32(%esp)\n" \
+    "pushl 40(%esp)\n" \
     "pushl $" #N "\n" \
     "call _LogCall\n" \
-    "addl $20, %esp\n" \
+    "addl $24, %esp\n" \
     "popal\n popfl\n" \
     "jmp *_g_orig+" #N "*4\n");
+
 #define DETOUR_SKIP(N, POP) \
 asm(".globl _detour" #N "\n" \
     "_detour" #N ":\n" \
+    "movl (%esp), %eax\n" \
     "pushfl\n pushal\n" \
-    "pushl 44(%esp)\n" \
-    "pushl 44(%esp)\n" \
-    "pushl 28(%esp)\n" \
-    "pushl 36(%esp)\n" \
+    "pushl %eax\n" \
+    "pushl 48(%esp)\n" \
+    "pushl 48(%esp)\n" \
+    "pushl 32(%esp)\n" \
+    "pushl 40(%esp)\n" \
     "pushl $" #N "\n" \
     "call _LogCall\n" \
-    "addl $20, %esp\n" \
+    "addl $24, %esp\n" \
     "popal\n popfl\n" \
     "cmpb $0, _g_skip+" #N "\n" \
     "je 1f\n" \
@@ -85,11 +83,11 @@ DETOUR_SKIP(1, 4)   // SetActiveSpell (F2)
 DETOUR_SKIP(2, 4)   // ClearSlot (F1)
 DETOUR(3) 
 DETOUR(4) 
-DETOUR(5)           // CancelVisual? (Seguro)
+DETOUR(5) 
 DETOUR_SKIP(6, 4)   // ClearSlotA (F4)
 DETOUR(7) 
-DETOUR_SKIP(8, 4)   // ClearSlotC (F3) - NUEVO INTERRUPTOR
-DETOUR(9)           // ForcedAnim?
+DETOUR_SKIP(8, 4)   // ClearSlotC (F3)
+DETOUR(9) 
 
 static DWORD WINAPI KeyThread(LPVOID) {
     bool f8 = false, f9 = false, f7 = false, f6 = false, f1 = false, f2 = false, f3 = false, f4 = false;
@@ -99,25 +97,16 @@ static DWORD WINAPI KeyThread(LPVOID) {
         bool b = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
         bool c = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
         bool d = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
-        bool k1 = (GetAsyncKeyState(VK_F1) & 0x8000) != 0;
-        bool k2 = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
-        bool k3 = (GetAsyncKeyState(VK_F3) & 0x8000) != 0;
-        bool k4 = (GetAsyncKeyState(VK_F4) & 0x8000) != 0;
         
-        if (k1 && !f1) { g_skip[2] = !g_skip[2]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlot omitido: %s ----\n", g_skip[2] ? "ON" : "OFF"); Beep(g_skip[2] ? 1200 : 500, 120); }
-        if (k2 && !f2) { g_skip[1] = !g_skip[1]; if (g_f) fprintf(g_f, "---- EXPERIMENTO SetActiveSpell omitido: %s ----\n", g_skip[1] ? "ON" : "OFF"); Beep(g_skip[1] ? 1200 : 500, 120); }
-        if (k3 && !f3) { g_skip[8] = !g_skip[8]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlotC omitido: %s ----\n", g_skip[8] ? "ON" : "OFF"); Beep(g_skip[8] ? 1200 : 500, 120); }
-        if (k4 && !f4) { g_skip[6] = !g_skip[6]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlotA omitido: %s ----\n", g_skip[6] ? "ON" : "OFF"); Beep(g_skip[6] ? 1200 : 500, 120); }
-        
-        if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle profundo (CancelVisual) %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }
-        if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- AnimIdToIndex %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }
+        if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle profundo %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }
+        if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- AnimIdToIndex (Callers) %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }
         if (a && !f8) {
             g_on = !g_on;
             if (g_f) { fprintf(g_f, "---- registro %s ----\n", g_on ? "ACTIVADO" : "DETENIDO"); fflush(g_f); }
         }
         if (b && !f9 && g_f) { fprintf(g_f, "==== MARCA %lu ====\n", (unsigned long)GetTickCount()); }
         
-        f8 = a; f9 = b; f7 = c; f6 = d; f1 = k1; f2 = k2; f3 = k3; f4 = k4;
+        f8 = a; f9 = b; f7 = c; f6 = d;
         { DWORD nowT = GetTickCount(); if (g_f && g_on && nowT - lastFlush > 1000) { fflush(g_f); lastFlush = nowT; } }
         Sleep(30);
     }
@@ -134,7 +123,7 @@ static DWORD WINAPI Boot(LPVOID) {
     g_f = fopen(path, "a");
     if (!g_f) return 0;
     setvbuf(g_f, NULL, _IOFBF, 1 << 16);
-    fprintf(g_f, "animlog.dll cargada. Esperando al juego...\n");
+    fprintf(g_f, "animlog.dll cargada (Modo Caller Tracker). Esperando al juego...\n");
     fflush(g_f);
     for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
     Sleep(5000);
@@ -153,7 +142,7 @@ static DWORD WINAPI Boot(LPVOID) {
         fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
     }
     MH_EnableHook(MH_ALL_HOOKS);
-    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex, F6 = detalle, F1 = ClearSlot, F2 = SetActiveSpell, F3 = ClearSlotC, F4 = ClearSlotA.\n");
+    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex con Callers.\n");
     fflush(g_f);
     CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
     return 0;
