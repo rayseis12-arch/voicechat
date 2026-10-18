@@ -30,11 +30,17 @@ extern "C" __attribute__((used)) int HandleAnimIdToIndex(uint32_t pThis, uint32_
     typedef int (*Orig_t)(uint32_t, uint32_t);
     Orig_t origFunc = (Orig_t)g_orig[0];
     
+    // Si el puntero del objeto es nulo, dejamos que el motor responda con normalidad sin saturar
+    if (pThis == 0) {
+        return origFunc(pThis, animId);
+    }
+
     int realIndex = origFunc(pThis, animId);
 
-    // Volcado directo sin condiciones estrictas de F7 para ver qué animId desfilan
-    if (g_f && g_on) {
-        fprintf(g_f, "%lu [ANIM_INDEX_TRACE] obj=%08X animId=%08X -> index=%d\n", (unsigned long)GetTickCount(), pThis, animId, realIndex);
+    // Si el filtro está activo y el objeto es válido (nuestro personaje u objetivo)
+    if (g_filterActive && g_f && g_on) {
+        // Registramos únicamente objetos válidos para limpiar el log de ruido visual
+        fprintf(g_f, "%lu [FILTRO ANIM] obj=%08X animId=%08X -> index=%d\n", (unsigned long)GetTickCount(), pThis, animId, realIndex);
     }
 
     return realIndex;
