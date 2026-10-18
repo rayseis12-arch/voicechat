@@ -1,6 +1,6 @@
 // animlog.dll - registra llamadas a funciones de animacion/hechizos del cliente Turtle WoW (1.12.1.5875)
 // NO modifica el juego: solo escribe anim_log.txt (en la carpeta del juego).
-// EXPERIMENTAL: F1 omite ClearSlot, F2 omite SetActiveSpell, F3 omite ForcedAnim, F4 omite ClearSlotA (pitido agudo = ON, grave = OFF).
+// EXPERIMENTAL: F1 omite ClearSlot, F2 omite SetActiveSpell, F3 omite ForcedAnim, F4 omite ClearSlotA, F5 omite CancelVisual? (pitido agudo = ON, grave = OFF).
 // Teclas: F8 = iniciar/parar registro, F9 = marca, F7 = AnimIdToIndex (sin repetidos), F6 = detalle de auras (ruidoso)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -85,14 +85,14 @@ DETOUR_SKIP(1, 4)   // SetActiveSpell (F2)
 DETOUR_SKIP(2, 4)   // ClearSlot (F1)
 DETOUR(3) 
 DETOUR(4) 
-DETOUR(5) 
-DETOUR_SKIP(6, 4)   // ClearSlotA (F4) - NUEVO INTERRUPTOR
+DETOUR_SKIP(5, 4)   // CancelVisual? (F5) - NUEVO INTERRUPTOR
+DETOUR_SKIP(6, 4)   // ClearSlotA (F4)[cite: 1]
 DETOUR(7) 
 DETOUR(8) 
-DETOUR_SKIP(9, 4)   // ForcedAnim? (F3)
+DETOUR_SKIP(9, 4)   // ForcedAnim? (F3)[cite: 1]
 
 static DWORD WINAPI KeyThread(LPVOID) {
-    bool f8 = false, f9 = false, f7 = false, f6 = false, f1 = false, f2 = false, f3 = false, f4 = false;
+    bool f8 = false, f9 = false, f7 = false, f6 = false, f1 = false, f2 = false, f3 = false, f4 = false, f5 = false;
     DWORD lastFlush = 0;
     for (;;) {
         bool a = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
@@ -103,22 +103,24 @@ static DWORD WINAPI KeyThread(LPVOID) {
         bool k2 = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
         bool k3 = (GetAsyncKeyState(VK_F3) & 0x8000) != 0;
         bool k4 = (GetAsyncKeyState(VK_F4) & 0x8000) != 0;
+        bool k5 = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
         
-        if (k1 && !f1) { g_skip[2] = !g_skip[2]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlot omitido: %s ----\n", g_skip[2] ? "ON" : "OFF"); Beep(g_skip[2] ? 1200 : 500, 120); }
-        if (k2 && !f2) { g_skip[1] = !g_skip[1]; if (g_f) fprintf(g_f, "---- EXPERIMENTO SetActiveSpell omitido: %s ----\n", g_skip[1] ? "ON" : "OFF"); Beep(g_skip[1] ? 1200 : 500, 120); }
-        if (k3 && !f3) { g_skip[9] = !g_skip[9]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ForcedAnim omitido: %s ----\n", g_skip[9] ? "ON" : "OFF"); Beep(g_skip[9] ? 1200 : 500, 120); }
-        if (k4 && !f4) { g_skip[6] = !g_skip[6]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlotA omitido: %s ----\n", g_skip[6] ? "ON" : "OFF"); Beep(g_skip[6] ? 1200 : 500, 120); }
+        if (k1 && !f1) { g_skip[2] = !g_skip[2]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlot omitido: %s ----\n", g_skip[2] ? "ON" : "OFF"); Beep(g_skip[2] ? 1200 : 500, 120); }[cite: 1]
+        if (k2 && !f2) { g_skip[1] = !g_skip[1]; if (g_f) fprintf(g_f, "---- EXPERIMENTO SetActiveSpell omitido: %s ----\n", g_skip[1] ? "ON" : "OFF"); Beep(g_skip[1] ? 1200 : 500, 120); }[cite: 1]
+        if (k3 && !f3) { g_skip[9] = !g_skip[9]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ForcedAnim omitido: %s ----\n", g_skip[9] ? "ON" : "OFF"); Beep(g_skip[9] ? 1200 : 500, 120); }[cite: 1]
+        if (k4 && !f4) { g_skip[6] = !g_skip[6]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlotA omitido: %s ----\n", g_skip[6] ? "ON" : "OFF"); Beep(g_skip[6] ? 1200 : 500, 120); }[cite: 1]
+        if (k5 && !f5) { g_skip[5] = !g_skip[5]; if (g_f) fprintf(g_f, "---- EXPERIMENTO CancelVisual omitido: %s ----\n", g_skip[5] ? "ON" : "OFF"); Beep(g_skip[5] ? 1200 : 500, 120); }
         
-        if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle auras %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }
-        if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- AnimIdToIndex %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }
+        if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle auras %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }[cite: 1]
+        if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- AnimIdToIndex %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }[cite: 1]
         if (a && !f8) {
             g_on = !g_on;
-            if (g_f) { fprintf(g_f, "---- registro %s ----\n", g_on ? "ACTIVADO" : "DETENIDO"); fflush(g_f); }
+            if (g_f) { fprintf(g_f, "---- registro %s ----\n", g_on ? "ACTIVADO" : "DETENIDO"); fflush(g_f); }[cite: 1]
         }
-        if (b && !f9 && g_f) { fprintf(g_f, "==== MARCA %lu ====\n", (unsigned long)GetTickCount()); }
+        if (b && !f9 && g_f) { fprintf(g_f, "==== MARCA %lu ====\n", (unsigned long)GetTickCount()); }[cite: 1]
         
-        f8 = a; f9 = b; f7 = c; f6 = d; f1 = k1; f2 = k2; f3 = k3; f4 = k4;
-        { DWORD nowT = GetTickCount(); if (g_f && g_on && nowT - lastFlush > 1000) { fflush(g_f); lastFlush = nowT; } }
+        f8 = a; f9 = b; f7 = c; f6 = d; f1 = k1; f2 = k2; f3 = k3; f4 = k4; f5 = k5;
+        { DWORD nowT = GetTickCount(); if (g_f && g_on && nowT - lastFlush > 1000) { fflush(g_f); lastFlush = nowT; } }[cite: 1]
         Sleep(30);
     }
 }
@@ -153,7 +155,7 @@ static DWORD WINAPI Boot(LPVOID) {
         fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
     }
     MH_EnableHook(MH_ALL_HOOKS);
-    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex, F6 = detalle auras, F1 = ClearSlot, F2 = SetActiveSpell, F3 = ForcedAnim, F4 = ClearSlotA.\n");
+    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex, F6 = detalle auras, F1 = ClearSlot, F2 = SetActiveSpell, F3 = ForcedAnim, F4 = ClearSlotA, F5 = CancelVisual.\n");
     fflush(g_f);
     CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
     return 0;
