@@ -1,4 +1,4 @@
-// animlog.dll - Lector de Opcodes y Callers para Turtle WoW (1.12.1.5875)
+// animlog.dll - Lector de Offset +0x1C para Turtle WoW (1.12.1.5875)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
@@ -27,7 +27,19 @@ extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx
     if (!g_on || !g_f) return;
     if (id == 0) {
         if (!g_anim) return;
-        fprintf(g_f, "%lu ANIM_CALLER obj=%08X anim_id=%08X caller=00%06X\n", (unsigned long)GetTickCount(), ecx, edx, caller);
+        
+        // NUEVO: Intentamos leer de forma segura el valor en [ecx + 0x1C] si la direccion de memoria es valida
+        uint32_t val1C = 0;
+        __try {
+            if (ecx > 0x10000 && ecx < 0x7FFFFFFF) {
+                val1C = *(uint32_t*)(ecx + 0x1C);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            val1C = 0xDEADBEEF;
+        }
+
+        fprintf(g_f, "%lu ANIM_OFFSET obj=%08X anim_id=%08X val_+1C=%08X caller=00%06X\n", 
+                (unsigned long)GetTickCount(), ecx, edx, val1C, caller);
         return;
     }
     if (id >= 5 && id <= 9 && !g_detail) return; 
@@ -92,7 +104,7 @@ static DWORD WINAPI KeyThread(LPVOID) {
         bool d = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
         
         if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle profundo %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }
-        if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- AnimIdToIndex (Callers) %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }
+        if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- Analizador Offset +0x1C %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }
         if (a && !f8) {
             g_on = !g_on;
             if (g_f) { fprintf(g_f, "---- registro %s ----\n", g_on ? "ACTIVADO" : "DETENIDO"); fflush(g_f); }
@@ -116,29 +128,13 @@ static DWORD WINAPI Boot(LPVOID) {
     g_f = fopen(path, "a");
     if (!g_f) return 0;
     setvbuf(g_f, NULL, _IOFBF, 1 << 16);
-    fprintf(g_f, "animlog.dll cargada (Modo Analizador de Memoria). Esperando al juego...\n");
+    fprintf(g_f, "animlog.dll cargada (Modo Analizador Offset +0x1C). Esperando al juego...\n");
     fflush(g_f);
     for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
     Sleep(5000);
-
-    // NUEVO: Volcar bytes de memoria alrededor de los callers encontrados (0x00711988 y 0x00712475)
-    fprintf(g_f, "--- VOLCADO DE MEMORIA (Opcodes en Callers) ---\n");
-    uintptr_t dumpAddrs[] = { 0x00711980, 0x00712470 };
-    for (auto addr : dumpAddrs) {
-        unsigned char* p = (unsigned char*)addr;
-        fprintf(g_f, "Memoria en %08X: ", (unsigned int)addr);
-        for (int i = 0; i < 16; i++) {
-            fprintf(g_f, "%02X ", p[i]);
-        }
-        fprintf(g_f, "\n");
-    }
-    fflush(g_f);
-
-    fprintf(g_f, "Instalando hooks...\n");
-    fflush(g_f);
     if (MH_Initialize() != MH_OK) return 0;
     struct { uintptr_t addr; void* det; } T[10] = {
-        { 0x00710310, (void*)detour0 }, { 0x005FF0C0, (void*)detour1 },
+        { 0x00710310, (void*)detour0 }, { 0x005FF0C0, (void*/*detour1*/)},
         { 0x005FF290, (void*)detour2 }, { 0x00612320, (void*)detour3 },
         { 0x0060ABE0, (void*)detour4 }, { 0x0060EDF0, (void*)detour5 },
         { 0x0060D150, (void*)detour6 }, { 0x005FF320, (void*)detour7 },
@@ -149,7 +145,7 @@ static DWORD WINAPI Boot(LPVOID) {
         fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
     }
     MH_EnableHook(MH_ALL_HOOKS);
-    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex con Callers.\n");
+    fprintf(g_f, "Listo. F8 = iniciar/parar, F7 = Activar lectura de Offset +0x1C.\n");
     fflush(g_f);
     CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
     return 0;
