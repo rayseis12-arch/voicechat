@@ -1,4 +1,4 @@
-// animlog.dll - Detour Seguro en 00712475 para Turtle WoW (1.12.1.5875)
+// animlog.dll - Detour Seguro en 00712475 con Modificación de Flags M2 (Turtle WoW 1.12.1.5875)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
@@ -31,12 +31,27 @@ typedef void (__fastcall *CallerBlock_t)();
 static CallerBlock_t g_origCallerBlock = nullptr;
 
 extern "C" __attribute__((used)) void OnCallerTrigger(uint32_t currentEcx, uint32_t currentEbp) {
-    if (!g_overrideActive) return;
+    if (!g_overrideActive || !currentEcx) return;
     
-    // Si el registro de depuración está activo, enviamos el evento al log
-    if (g_f && g_on) {
-        fprintf(g_f, "%lu [HOOK 00712475] Procesando estado de capa M2 (ECX=%08X EBP=%08X)\n", 
-                (unsigned long)GetTickCount(), currentEcx, currentEbp);
+    // Obtenemos el puntero a la estructura de la unidad / modelo M2 desde ECX
+    uintptr_t unitObj = (uintptr_t)currentEcx;
+    
+    // Verificamos la validez del puntero para evitar accesos indebidos a memoria
+    if (!IsBadReadPtr((void*)unitObj, sizeof(uintptr_t))) {
+        
+        // Offset de la bandera de capas de animación en WoW 1.12.1
+        uint32_t* pAnimFlags = (uint32_t*)(unitObj + 0xD8); 
+        
+        if (!IsBadWritePtr(pAnimFlags, sizeof(uint32_t))) {
+            // Forzamos el bit de inmunidad a interrupción de animación (Bit 0x10)
+            uint32_t oldFlags = *pAnimFlags;
+            *pAnimFlags |= 0x00000010; // Preserva la animación del spell en curso
+            
+            if (g_f && g_on) {
+                fprintf(g_f, "%lu [FLAGS M2] Se forzó prioridad visual en ECX=%08X (Flags: %08X -> %08X)\n", 
+                        (unsigned long)GetTickCount(), currentEcx, oldFlags, *pAnimFlags);
+            }
+        }
     }
 }
 
@@ -134,52 +149,4 @@ static DWORD WINAPI KeyThread(LPVOID) {
         if (b && !f9 && g_f) { fprintf(g_f, "==== MARCA %lu ====\n", (unsigned long)GetTickCount()); }
         
         f8 = a; f9 = b; f7 = c; f6 = d;
-        { DWORD nowT = GetTickCount(); if (g_f && g_on && nowT - lastFlush > 1000) { fflush(g_f); lastFlush = nowT; } }
-        Sleep(30);
-    }
-}
-
-static HINSTANCE g_self = nullptr;
-
-static DWORD WINAPI Boot(LPVOID) {
-    char path[MAX_PATH] = {0};
-    GetModuleFileNameA(g_self, path, MAX_PATH);
-    char* slash = strrchr(path, '\\');
-    if (slash) *(slash + 1) = 0;
-    strcat(path, "anim_log.txt");
-    g_f = fopen(path, "a");
-    if (!g_f) return 0;
-    setvbuf(g_f, NULL, _IOFBF, 1 << 16);
-    fprintf(g_f, "animlog.dll cargada (Modo Detour Seguro en 00712475). Esperando al juego...\n");
-    fflush(g_f);
-    for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
-    Sleep(5000);
-
-    if (MH_Initialize() != MH_OK) return 0;
-
-    // Crear hook con MinHook sobre los 5 bytes de 00712475
-    MH_STATUS callerStatus = MH_CreateHook((LPVOID)0x00712475, (void*)detour_caller, (void**)&g_origCallerBlock);
-    fprintf(g_f, "hook en 00712475: %s\n", MH_StatusToString(callerStatus));
-
-    struct { uintptr_t addr; void* det; } T[10] = {
-        { 0x00710310, (void*)detour0 }, { 0x005FF0C0, (void*)detour1 },
-        { 0x005FF290, (void*)detour2 }, { 0x00612320, (void*)detour3 },
-        { 0x0060ABE0, (void*)detour4 }, { 0x0060EDF0, (void*)detour5 },
-        { 0x0060D150, (void*)detour6 }, { 0x005FF320, (void*)detour7 },
-        { 0x00614150, (void*)detour8 }, { 0x0060CE70, (void*)detour9 }
-    };
-    for (int i = 0; i < 10; i++) {
-        MH_STATUS s = MH_CreateHook((LPVOID)T[i].addr, T[i].det, &g_orig[i]);
-        fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
-    }
-    MH_EnableHook(MH_ALL_HOOKS);
-    fprintf(g_f, "Listo. Hook seguro activado sobre 00712475 sin riesgo de crash.\n");
-    fflush(g_f);
-    CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
-    return 0;
-}
-
-BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID) {
-    if (reason == DLL_PROCESS_ATTACH) { g_self = h; DisableThreadLibraryCalls(h); CreateThread(NULL, 0, Boot, NULL, 0, NULL); }
-    return TRUE;
-}
+        { DWORD nowT = GetTickCount(); if (g_f && g_on && nowT - lastFlush > 1000) { fflush(g_f); lastFlush = nowT
