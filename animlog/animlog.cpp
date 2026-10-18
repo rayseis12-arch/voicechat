@@ -1,5 +1,4 @@
-// animlog.dll - Rastreador de emisores (Callers) para Turtle WoW (1.12.1.5875)
-// Teclas: F8 = iniciar/parar registro, F9 = marca, F7 = AnimIdToIndex, F6 = detalle profundo
+// animlog.dll - Lector de Opcodes y Callers para Turtle WoW (1.12.1.5875)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
@@ -24,28 +23,22 @@ static const char* NAMES[] = {
     "CancelVisual?(0060edf0)", "ClearSlotA(0060d150)", "ClearSlotB(005ff320)", "ClearSlotC(00614150)", "ForcedAnim?(0060ce70)"
 };
 
-// Modificamos LogCall para recibir tambien la direccion de retorno (caller) desde la pila
 extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2, uint32_t caller) {
     if (!g_on || !g_f) return;
-    
-    // Si es AnimIdToIndex (id 0), ahora registraremos tambien el caller exacto para rastrear quien pide la animacion
     if (id == 0) {
         if (!g_anim) return;
         fprintf(g_f, "%lu ANIM_CALLER obj=%08X anim_id=%08X caller=00%06X\n", (unsigned long)GetTickCount(), ecx, edx, caller);
         return;
     }
-    
     if (id >= 5 && id <= 9 && !g_detail) return; 
-    
     fprintf(g_f, "%lu %s ecx=%08X edx=%08X a1=%08X a2=%08X caller=00%06X\n",
             (unsigned long)GetTickCount(), NAMES[id], ecx, edx, a1, a2, caller);
 }
 
-// Actualizamos el macro DETOUR para extraer la direccion de retorno (que esta en la pila antes de pushal/pushfl)
 #define DETOUR(N) \
 asm(".globl _detour" #N "\n" \
     "_detour" #N ":\n" \
-    "movl (%esp), %eax\n" /* Extraer direccion de retorno */ \
+    "movl (%esp), %eax\n" \
     "pushfl\n pushal\n" \
     "pushl %eax\n" \
     "pushl 48(%esp)\n" \
@@ -79,18 +72,18 @@ asm(".globl _detour" #N "\n" \
     "jmp *_g_orig+" #N "*4\n");
 
 DETOUR(0) 
-DETOUR_SKIP(1, 4)   // SetActiveSpell (F2)
-DETOUR_SKIP(2, 4)   // ClearSlot (F1)
+DETOUR_SKIP(1, 4)   
+DETOUR_SKIP(2, 4)   
 DETOUR(3) 
 DETOUR(4) 
 DETOUR(5) 
-DETOUR_SKIP(6, 4)   // ClearSlotA (F4)
+DETOUR_SKIP(6, 4)   
 DETOUR(7) 
-DETOUR_SKIP(8, 4)   // ClearSlotC (F3)
+DETOUR_SKIP(8, 4)   
 DETOUR(9) 
 
 static DWORD WINAPI KeyThread(LPVOID) {
-    bool f8 = false, f9 = false, f7 = false, f6 = false, f1 = false, f2 = false, f3 = false, f4 = false;
+    bool f8 = false, f9 = false, f7 = false, f6 = false;
     DWORD lastFlush = 0;
     for (;;) {
         bool a = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
@@ -123,10 +116,24 @@ static DWORD WINAPI Boot(LPVOID) {
     g_f = fopen(path, "a");
     if (!g_f) return 0;
     setvbuf(g_f, NULL, _IOFBF, 1 << 16);
-    fprintf(g_f, "animlog.dll cargada (Modo Caller Tracker). Esperando al juego...\n");
+    fprintf(g_f, "animlog.dll cargada (Modo Analizador de Memoria). Esperando al juego...\n");
     fflush(g_f);
     for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
     Sleep(5000);
+
+    // NUEVO: Volcar bytes de memoria alrededor de los callers encontrados (0x00711988 y 0x00712475)
+    fprintf(g_f, "--- VOLCADO DE MEMORIA (Opcodes en Callers) ---\n");
+    uintptr_t dumpAddrs[] = { 0x00711980, 0x00712470 };
+    for (auto addr : dumpAddrs) {
+        unsigned char* p = (unsigned char*)addr;
+        fprintf(g_f, "Memoria en %08X: ", (unsigned int)addr);
+        for (int i = 0; i < 16; i++) {
+            fprintf(g_f, "%02X ", p[i]);
+        }
+        fprintf(g_f, "\n");
+    }
+    fflush(g_f);
+
     fprintf(g_f, "Instalando hooks...\n");
     fflush(g_f);
     if (MH_Initialize() != MH_OK) return 0;
