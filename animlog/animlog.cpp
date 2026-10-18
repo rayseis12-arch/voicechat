@@ -85,11 +85,11 @@ DETOUR_SKIP(1, 4)   // SetActiveSpell (F2)
 DETOUR_SKIP(2, 4)   // ClearSlot (F1)
 DETOUR(3) 
 DETOUR(4) 
-DETOUR_SKIP(5, 4)   // CancelVisual? (F5) - NUEVO INTERRUPTOR
-DETOUR_SKIP(6, 4)   // ClearSlotA (F4)[cite: 1]
+DETOUR_SKIP(5, 4)   // CancelVisual? (F5)
+DETOUR_SKIP(6, 4)   // ClearSlotA (F4)
 DETOUR(7) 
 DETOUR(8) 
-DETOUR_SKIP(9, 4)   // ForcedAnim? (F3)[cite: 1]
+DETOUR_SKIP(9, 4)   // ForcedAnim? (F3)
 
 static DWORD WINAPI KeyThread(LPVOID) {
     bool f8 = false, f9 = false, f7 = false, f6 = false, f1 = false, f2 = false, f3 = false, f4 = false, f5 = false;
@@ -105,22 +105,22 @@ static DWORD WINAPI KeyThread(LPVOID) {
         bool k4 = (GetAsyncKeyState(VK_F4) & 0x8000) != 0;
         bool k5 = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
         
-        if (k1 && !f1) { g_skip[2] = !g_skip[2]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlot omitido: %s ----\n", g_skip[2] ? "ON" : "OFF"); Beep(g_skip[2] ? 1200 : 500, 120); }[cite: 1]
-        if (k2 && !f2) { g_skip[1] = !g_skip[1]; if (g_f) fprintf(g_f, "---- EXPERIMENTO SetActiveSpell omitido: %s ----\n", g_skip[1] ? "ON" : "OFF"); Beep(g_skip[1] ? 1200 : 500, 120); }[cite: 1]
-        if (k3 && !f3) { g_skip[9] = !g_skip[9]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ForcedAnim omitido: %s ----\n", g_skip[9] ? "ON" : "OFF"); Beep(g_skip[9] ? 1200 : 500, 120); }[cite: 1]
-        if (k4 && !f4) { g_skip[6] = !g_skip[6]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlotA omitido: %s ----\n", g_skip[6] ? "ON" : "OFF"); Beep(g_skip[6] ? 1200 : 500, 120); }[cite: 1]
+        if (k1 && !f1) { g_skip[2] = !g_skip[2]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlot omitido: %s ----\n", g_skip[2] ? "ON" : "OFF"); Beep(g_skip[2] ? 1200 : 500, 120); }
+        if (k2 && !f2) { g_skip[1] = !g_skip[1]; if (g_f) fprintf(g_f, "---- EXPERIMENTO SetActiveSpell omitido: %s ----\n", g_skip[1] ? "ON" : "OFF"); Beep(g_skip[1] ? 1200 : 500, 120); }
+        if (k3 && !f3) { g_skip[9] = !g_skip[9]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ForcedAnim omitido: %s ----\n", g_skip[9] ? "ON" : "OFF"); Beep(g_skip[9] ? 1200 : 500, 120); }
+        if (k4 && !f4) { g_skip[6] = !g_skip[6]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlotA omitido: %s ----\n", g_skip[6] ? "ON" : "OFF"); Beep(g_skip[6] ? 1200 : 500, 120); }
         if (k5 && !f5) { g_skip[5] = !g_skip[5]; if (g_f) fprintf(g_f, "---- EXPERIMENTO CancelVisual omitido: %s ----\n", g_skip[5] ? "ON" : "OFF"); Beep(g_skip[5] ? 1200 : 500, 120); }
         
-        if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle auras %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }[cite: 1]
-        if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- AnimIdToIndex %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }[cite: 1]
+        if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle auras %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }
+        if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- AnimIdToIndex %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }
         if (a && !f8) {
             g_on = !g_on;
-            if (g_f) { fprintf(g_f, "---- registro %s ----\n", g_on ? "ACTIVADO" : "DETENIDO"); fflush(g_f); }[cite: 1]
+            if (g_f) { fprintf(g_f, "---- registro %s ----\n", g_on ? "ACTIVADO" : "DETENIDO"); fflush(g_f); }
         }
-        if (b && !f9 && g_f) { fprintf(g_f, "==== MARCA %lu ====\n", (unsigned long)GetTickCount()); }[cite: 1]
+        if (b && !f9 && g_f) { fprintf(g_f, "==== MARCA %lu ====\n", (unsigned long)GetTickCount()); }
         
         f8 = a; f9 = b; f7 = c; f6 = d; f1 = k1; f2 = k2; f3 = k3; f4 = k4; f5 = k5;
-        { DWORD nowT = GetTickCount(); if (g_f && g_on && nowT - lastFlush > 1000) { fflush(g_f); lastFlush = nowT; } }[cite: 1]
+        { DWORD nowT = GetTickCount(); if (g_f && g_on && nowT - lastFlush > 1000) { fflush(g_f); lastFlush = nowT; } }
         Sleep(30);
     }
 }
