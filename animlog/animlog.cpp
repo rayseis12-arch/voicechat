@@ -18,7 +18,7 @@ static FILE* g_f = nullptr;
 static volatile bool g_on = false;
 static volatile bool g_detail = false; 
 static volatile bool g_anim = false;   
-static volatile bool g_overrideActive = true; // Interruptor de priorización activa
+static volatile bool g_overrideActive = true;
 
 static const char* NAMES[] = {
     "AnimIdToIndex(00710310)", "SetActiveSpell(005ff0c0)", "ClearSlot(005ff290)",
@@ -26,26 +26,18 @@ static const char* NAMES[] = {
     "CancelVisual?(0060edf0)", "ClearSlotA(0060d150)", "ClearSlotB(005ff320)", "ClearSlotC(00614150)", "ForcedAnim?(0060ce70)"
 };
 
-// Puntero de función original para el bloque 00712475
 typedef void (__fastcall *CallerBlock_t)();
 static CallerBlock_t g_origCallerBlock = nullptr;
 
 extern "C" __attribute__((used)) void OnCallerTrigger(uint32_t currentEcx, uint32_t currentEbp) {
     if (!g_overrideActive || !currentEcx) return;
     
-    // Obtenemos el puntero a la estructura de la unidad / modelo M2 desde ECX
     uintptr_t unitObj = (uintptr_t)currentEcx;
-    
-    // Verificamos la validez del puntero para evitar accesos indebidos a memoria
     if (!IsBadReadPtr((void*)unitObj, sizeof(uintptr_t))) {
-        
-        // Offset de la bandera de capas de animación en WoW 1.12.1
         uint32_t* pAnimFlags = (uint32_t*)(unitObj + 0xD8); 
-        
         if (!IsBadWritePtr(pAnimFlags, sizeof(uint32_t))) {
-            // Forzamos el bit de inmunidad a interrupción de animación (Bit 0x10)
             uint32_t oldFlags = *pAnimFlags;
-            *pAnimFlags |= 0x00000010; // Preserva la animación del spell en curso
+            *pAnimFlags |= 0x00000010; 
             
             if (g_f && g_on) {
                 fprintf(g_f, "%lu [FLAGS M2] Se forzó prioridad visual en ECX=%08X (Flags: %08X -> %08X)\n", 
@@ -55,7 +47,6 @@ extern "C" __attribute__((used)) void OnCallerTrigger(uint32_t currentEcx, uint3
     }
 }
 
-// Detour en ensamblador para 00712475: Preserva el estado y ejecuta las instrucciones reemplazadas
 asm(
     ".globl _detour_caller\n"
     "_detour_caller:\n"
@@ -65,10 +56,8 @@ asm(
     "call _OnCallerTrigger\n"
     "addl $8, %esp\n"
     "popal\n popfl\n"
-    // Ejecutamos exactamente los 5 bytes interceptados originales (8B 4D F4 33 D2)
     "movl -12(%ebp), %ecx\n"
     "xorl %edx, %edx\n"
-    // Volvemos al flujo normal del motor (00712475 + 5 = 0071247A)
     "pushl $0x0071247A\n"
     "ret\n"
 );
@@ -149,4 +138,57 @@ static DWORD WINAPI KeyThread(LPVOID) {
         if (b && !f9 && g_f) { fprintf(g_f, "==== MARCA %lu ====\n", (unsigned long)GetTickCount()); }
         
         f8 = a; f9 = b; f7 = c; f6 = d;
-        { DWORD nowT = GetTickCount(); if (g_f && g_on && nowT - lastFlush > 1000) { fflush(g_f); lastFlush = nowT
+        { 
+            DWORD nowT = GetTickCount(); 
+            if (g_f && g_on && nowT - lastFlush > 1000) { 
+                fflush(g_f); 
+                lastFlush = nowT; 
+            } 
+        }
+        Sleep(30);
+    }
+}
+
+static HINSTANCE g_self = nullptr;
+
+static DWORD WINAPI Boot(LPVOID) {
+    char path[MAX_PATH] = {0};
+    GetModuleFileNameA(g_self, path, MAX_PATH);
+    char* slash = strrchr(path, '\\');
+    if (slash) *(slash + 1) = 0;
+    strcat(path, "anim_log.txt");
+    g_f = fopen(path, "a");
+    if (!g_f) return 0;
+    setvbuf(g_f, NULL, _IOFBF, 1 << 16);
+    fprintf(g_f, "animlog.dll cargada (Modo Control de Flags M2 en 00712475). Esperando al juego...\n");
+    fflush(g_f);
+    for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
+    Sleep(5000);
+
+    if (MH_Initialize() != MH_OK) return 0;
+
+    MH_STATUS callerStatus = MH_CreateHook((LPVOID)0x00712475, (void*)detour_caller, (void**)&g_origCallerBlock);
+    fprintf(g_f, "hook en 00712475: %s\n", MH_StatusToString(callerStatus));
+
+    struct { uintptr_t addr; void* det; } T[10] = {
+        { 0x00710310, (void*)detour0 }, { 0x005FF0C0, (void*)detour1 },
+        { 0x005FF290, (void*)detour2 }, { 0x00612320, (void*)detour3 },
+        { 0x0060ABE0, (void*)detour4 }, { 0x0060EDF0, (void*)detour5 },
+        { 0x0060D150, (void*)detour6 }, { 0x005FF320, (void*)detour7 },
+        { 0x00614150, (void*)detour8 }, { 0x0060CE70, (void*)detour9 }
+    };
+    for (int i = 0; i < 10; i++) {
+        MH_STATUS s = MH_CreateHook((LPVOID)T[i].addr, T[i].det, &g_orig[i]);
+        fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
+    }
+    MH_EnableHook(MH_ALL_HOOKS);
+    fprintf(g_f, "Listo. Hook seguro activado sobre 00712475.\n");
+    fflush(g_f);
+    CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
+    return 0;
+}
+
+BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) { g_self = h; DisableThreadLibraryCalls(h); CreateThread(NULL, 0, Boot, NULL, 0, NULL); }
+    return TRUE;
+}
