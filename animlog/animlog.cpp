@@ -1,7 +1,7 @@
 // animlog.dll - registra llamadas a funciones de animacion/hechizos del cliente Turtle WoW (1.12.1.5875)
 // NO modifica el juego: solo escribe anim_log.txt (en la carpeta del juego).
-// EXPERIMENTAL: F1 omite ClearSlot, F2 omite SetActiveSpell, F3 omite ForcedAnim, F4 omite ClearSlotA (pitido agudo = ON, grave = OFF).
-// Teclas: F8 = iniciar/parar registro, F9 = marca, F7 = AnimIdToIndex, F6 = detalle profundo (incluye CancelVisual)
+// EXPERIMENTAL: F1 omite ClearSlot, F2 omite SetActiveSpell, F3 omite ClearSlotC, F4 omite ClearSlotA (pitido agudo = ON, grave = OFF).
+// Teclas: F8 = iniciar/parar registro, F9 = marca, F7 = AnimIdToIndex, F6 = detalle profundo (CancelVisual)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
@@ -85,11 +85,11 @@ DETOUR_SKIP(1, 4)   // SetActiveSpell (F2)
 DETOUR_SKIP(2, 4)   // ClearSlot (F1)
 DETOUR(3) 
 DETOUR(4) 
-DETOUR(5)           // CancelVisual? (Seguro: solo registra cuando F6 esta activo)
+DETOUR(5)           // CancelVisual? (Seguro)
 DETOUR_SKIP(6, 4)   // ClearSlotA (F4)
 DETOUR(7) 
-DETOUR(8) 
-DETOUR_SKIP(9, 4)   // ForcedAnim? (F3)
+DETOUR_SKIP(8, 4)   // ClearSlotC (F3) - NUEVO INTERRUPTOR
+DETOUR(9)           // ForcedAnim?
 
 static DWORD WINAPI KeyThread(LPVOID) {
     bool f8 = false, f9 = false, f7 = false, f6 = false, f1 = false, f2 = false, f3 = false, f4 = false;
@@ -106,7 +106,7 @@ static DWORD WINAPI KeyThread(LPVOID) {
         
         if (k1 && !f1) { g_skip[2] = !g_skip[2]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlot omitido: %s ----\n", g_skip[2] ? "ON" : "OFF"); Beep(g_skip[2] ? 1200 : 500, 120); }
         if (k2 && !f2) { g_skip[1] = !g_skip[1]; if (g_f) fprintf(g_f, "---- EXPERIMENTO SetActiveSpell omitido: %s ----\n", g_skip[1] ? "ON" : "OFF"); Beep(g_skip[1] ? 1200 : 500, 120); }
-        if (k3 && !f3) { g_skip[9] = !g_skip[9]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ForcedAnim omitido: %s ----\n", g_skip[9] ? "ON" : "OFF"); Beep(g_skip[9] ? 1200 : 500, 120); }
+        if (k3 && !f3) { g_skip[8] = !g_skip[8]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlotC omitido: %s ----\n", g_skip[8] ? "ON" : "OFF"); Beep(g_skip[8] ? 1200 : 500, 120); }
         if (k4 && !f4) { g_skip[6] = !g_skip[6]; if (g_f) fprintf(g_f, "---- EXPERIMENTO ClearSlotA omitido: %s ----\n", g_skip[6] ? "ON" : "OFF"); Beep(g_skip[6] ? 1200 : 500, 120); }
         
         if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle profundo (CancelVisual) %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }
@@ -153,7 +153,7 @@ static DWORD WINAPI Boot(LPVOID) {
         fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
     }
     MH_EnableHook(MH_ALL_HOOKS);
-    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex, F6 = detalle profundo (CancelVisual), F1 = ClearSlot, F2 = SetActiveSpell, F3 = ForcedAnim, F4 = ClearSlotA.\n");
+    fprintf(g_f, "Listo. F8 = iniciar/parar, F9 = marca, F7 = AnimIdToIndex, F6 = detalle, F1 = ClearSlot, F2 = SetActiveSpell, F3 = ClearSlotC, F4 = ClearSlotA.\n");
     fflush(g_f);
     CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
     return 0;
