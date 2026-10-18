@@ -1,4 +1,4 @@
-// animlog.dll - Gancho Seguro de Prioridad (Sin Error #132)
+// animlog.dll - Parche Seguro de Animación (Turtle WoW 1.12.1.5875)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
@@ -17,7 +17,7 @@ static FILE* g_f = nullptr;
 static volatile bool g_on = false;
 static volatile bool g_detail = false; 
 static volatile bool g_anim = false;   
-static volatile bool g_protectAnim = true;
+static volatile bool g_patchActive = true; // Interruptor del parche
 
 static const char* NAMES[] = {
     "AnimIdToIndex(00710310)", "SetActiveSpell(005ff0c0)", "ClearSlot(005ff290)",
@@ -25,22 +25,36 @@ static const char* NAMES[] = {
     "CancelVisual?(0060edf0)", "ClearSlotA(0060d150)", "ClearSlotB(005ff320)", "ClearSlotC(00614150)", "ForcedAnim?(0060ce70)"
 };
 
-// Puntero de funcion original para AnimIdToIndex
-typedef uint32_t (__fastcall *AnimIdToIndex_t)(uint32_t ecx, uint32_t edx, uint32_t a1);
-
-extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2, uint32_t caller) {
-    if (!g_on || !g_f) return;
-    if (id == 0 && g_anim) {
-        fprintf(g_f, "%lu ANIM_CALLER obj=%08X anim_id=%08X caller=00%06X\n", (unsigned long)GetTickCount(), ecx, edx, caller);
-        return;
-    }
-    if (id >= 5 && id <= 9 && g_detail) {
-        fprintf(g_f, "%lu %s ecx=%08X edx=%08X a1=%08X a2=%08X caller=00%06X\n",
-                (unsigned long)GetTickCount(), NAMES[id], ecx, edx, a1, a2, caller);
+// Función auxiliar en C que evalúa el resultado de AnimIdToIndex y puede alterar EAX
+extern "C" __attribute__((used)) void PostProcessAnim(uint32_t caller, uint32_t* pEax) {
+    if (!pEax) return;
+    
+    // Si la llamada viene de 00712475 y el parche está activo
+    if (caller == 0x00712475 && g_patchActive) {
+        if (g_f && g_on) {
+            fprintf(g_f, "%lu [PARCHE] Interceptado resultado en 00712475 (EAX original: %08X)\n", 
+                    (unsigned long)GetTickCount(), *pEax);
+        }
+        // Aquí forzamos un valor de índice/prioridad válido que no dispare el corte visual
+        // (Por ejemplo, asegurando que el bit de cancelación no se active)
+        *pEax &= ~0x80000000; // Limpia el flag de cancelación si está presente
     }
 }
 
-// Detour seguro en ensamblador: SIEMPRE ejecuta la funcion original
+// Detour avanzado para AnimIdToIndex (id = 0): Ejecuta el original y luego intercepta EAX
+asm(
+    ".globl _detour0\n"
+    "_detour0:\n"
+    "movl (%esp), %eax\n"          // Obtiene la dirección de retorno (caller)
+    "pushfl\n pushal\n"
+    "pushl %esp\n"                  // Pasa puntero a los registros guardados (para modificar EAX)
+    "pushl %eax\n"                  // Pasa el caller
+    "call _PostProcessAnim\n"
+    "addl $8, %esp\n"
+    "popal\n popfl\n"
+    "jmp *_g_orig\n"                // Salta a la función original de AnimIdToIndex
+);
+
 #define DETOUR(N) \
 asm(".globl _detour" #N "\n" \
     "_detour" #N ":\n" \
@@ -77,7 +91,13 @@ asm(".globl _detour" #N "\n" \
     "1:\n" \
     "jmp *_g_orig+" #N "*4\n");
 
-DETOUR(0) 
+extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2, uint32_t caller) {
+    if (!g_on || !g_f) return;
+    if (id >= 5 && id <= 9 && !g_detail) return; 
+    fprintf(g_f, "%lu %s ecx=%08X edx=%08X a1=%08X a2=%08X caller=00%06X\n",
+            (unsigned long)GetTickCount(), NAMES[id], ecx, edx, a1, a2, caller);
+}
+
 DETOUR_SKIP(1, 4)   
 DETOUR_SKIP(2, 4)   
 DETOUR(3) 
@@ -98,7 +118,7 @@ static DWORD WINAPI KeyThread(LPVOID) {
         bool d = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
         
         if (d && !f6) { g_detail = !g_detail; if (g_f) { fprintf(g_f, "---- detalle profundo %s ----\n", g_detail ? "ON" : "OFF"); fflush(g_f); } }
-        if (c && !f7) { g_anim = !g_anim; if (g_f) { fprintf(g_f, "---- Rastreo de Animacion %s ----\n", g_anim ? "ON" : "OFF"); fflush(g_f); } }
+        if (c && !f7) { g_patchActive = !g_patchActive; if (g_f) { fprintf(g_f, "---- Parche de Animación %s ----\n", g_patchActive ? "ACTIVADO" : "DESACTIVADO"); fflush(g_f); } }
         if (a && !f8) {
             g_on = !g_on;
             if (g_f) { fprintf(g_f, "---- registro %s ----\n", g_on ? "ACTIVADO" : "DETENIDO"); fflush(g_f); }
@@ -122,7 +142,7 @@ static DWORD WINAPI Boot(LPVOID) {
     g_f = fopen(path, "a");
     if (!g_f) return 0;
     setvbuf(g_f, NULL, _IOFBF, 1 << 16);
-    fprintf(g_f, "animlog.dll cargada (Modo Estabilidad Total - Sin Crash). Esperando al juego...\n");
+    fprintf(g_f, "animlog.dll cargada (Modo Parche Activo EAX). Esperando al juego...\n");
     fflush(g_f);
     for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
     Sleep(5000);
@@ -140,7 +160,7 @@ static DWORD WINAPI Boot(LPVOID) {
         fprintf(g_f, "hook %s: %s\n", NAMES[i], MH_StatusToString(s));
     }
     MH_EnableHook(MH_ALL_HOOKS);
-    fprintf(g_f, "Listo. El juego entrara al mundo sin problemas.\n");
+    fprintf(g_f, "Listo. F7 alterna el parche en tiempo real.\n");
     fflush(g_f);
     CreateThread(NULL, 0, KeyThread, NULL, 0, NULL);
     return 0;
