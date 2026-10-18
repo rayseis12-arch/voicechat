@@ -28,13 +28,11 @@ extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx
     if (id == 0) {
         if (!g_anim) return;
         
-        // NUEVO: Intentamos leer de forma segura el valor en [ecx + 0x1C] si la direccion de memoria es valida
+        // Comprobacion segura del puntero para MinGW/GCC
         uint32_t val1C = 0;
-        __try {
-            if (ecx > 0x10000 && ecx < 0x7FFFFFFF) {
-                val1C = *(uint32_t*)(ecx + 0x1C);
-            }
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        if (ecx > 0x00010000 && ecx < 0x7FFFFFFF && !IsBadReadPtr((void*)(ecx + 0x1C), 4)) {
+            val1C = *(uint32_t*)(ecx + 0x1C);
+        } else {
             val1C = 0xDEADBEEF;
         }
 
@@ -134,7 +132,7 @@ static DWORD WINAPI Boot(LPVOID) {
     Sleep(5000);
     if (MH_Initialize() != MH_OK) return 0;
     struct { uintptr_t addr; void* det; } T[10] = {
-        { 0x00710310, (void*)detour0 }, { 0x005FF0C0, (void*/*detour1*/)},
+        { 0x00710310, (void*)detour0 }, { 0x005FF0C0, (void*)detour1 },
         { 0x005FF290, (void*)detour2 }, { 0x00612320, (void*)detour3 },
         { 0x0060ABE0, (void*)detour4 }, { 0x0060EDF0, (void*)detour5 },
         { 0x0060D150, (void*)detour6 }, { 0x005FF320, (void*)detour7 },
