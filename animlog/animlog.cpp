@@ -1,4 +1,4 @@
-// animlog.dll - Analizador Caller 00712475 para Turtle WoW (1.12.1.5875)
+// animlog.dll - Monitor de Flujo de Animación para Turtle WoW (1.12.1.5875)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
@@ -116,22 +116,11 @@ static DWORD WINAPI Boot(LPVOID) {
     g_f = fopen(path, "a");
     if (!g_f) return 0;
     setvbuf(g_f, NULL, _IOFBF, 1 << 16);
-    fprintf(g_f, "animlog.dll cargada (Analizador Caller 00712475). Esperando al juego...\n");
+    fprintf(g_f, "animlog.dll cargada (Modo Monitor de Flujo). Esperando al juego...\n");
     fflush(g_f);
     for (int i = 0; i < 160 && !FindWindowA("GxWindowClass", NULL); i++) Sleep(250);
     Sleep(5000);
-
-    // Volcar 32 bytes exactamente alrededor de la direccion 00712475
-    fprintf(g_f, "--- VOLCADO DE MEMORIA EN CALLER 00712475 ---\n");
-    uintptr_t dumpAddr = 0x00712450;
-    unsigned char* p = (unsigned char*)dumpAddr;
-    fprintf(g_f, "Memoria en %08X: ", (unsigned int)dumpAddr);
-    for (int i = 0; i < 32; i++) {
-        fprintf(g_f, "%02X ", p[i]);
-    }
-    fprintf(g_f, "\n");
-    fflush(g_f);
-
+    
     if (MH_Initialize() != MH_OK) return 0;
     struct { uintptr_t addr; void* det; } T[10] = {
         { 0x00710310, (void*)detour0 }, { 0x005FF0C0, (void*)detour1 },
