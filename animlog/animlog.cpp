@@ -30,17 +30,15 @@ extern "C" __attribute__((used)) int HandleAnimIdToIndex(uint32_t pThis, uint32_
     typedef int (*Orig_t)(uint32_t, uint32_t);
     Orig_t origFunc = (Orig_t)g_orig[0];
     
-    // Si el puntero del objeto es nulo, dejamos que el motor responda con normalidad sin saturar
-    if (pThis == 0) {
+    // Blindaje estricto: Si el puntero es nulo o inválido para lectura, devolvemos la ejecución original sin tocar nada
+    if (pThis == 0 || IsBadReadPtr((void*)pThis, 4)) {
         return origFunc(pThis, animId);
     }
 
     int realIndex = origFunc(pThis, animId);
 
-    // Si el filtro está activo y el objeto es válido (nuestro personaje u objetivo)
     if (g_filterActive && g_f && g_on) {
-        // Registramos únicamente objetos válidos para limpiar el log de ruido visual
-        fprintf(g_f, "%lu [FILTRO ANIM] obj=%08X animId=%08X -> index=%d\n", (unsigned long)GetTickCount(), pThis, animId, realIndex);
+        fprintf(g_f, "%lu [FILTRO ANIM BLINDADO] obj=%08X animId=%08X -> index=%d\n", (unsigned long)GetTickCount(), pThis, animId, realIndex);
     }
 
     return realIndex;
