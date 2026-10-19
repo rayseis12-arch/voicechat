@@ -27,7 +27,7 @@ static const char* NAMES[] = {
 };
 
 // Se llama desde el detour: no depende del numero real de argumentos
-extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2) {
+extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2, uint32_t* stk) {
     if (!g_on || !g_f) return;
     if (id >= 5 && id <= 9 && !g_detail) return;   // ruido de otras unidades (auras, ForcedAnim)
     if (id == 0) {                                  // AnimIdToIndex: CAMBIOS de animacion por unidad (F7)
@@ -43,7 +43,18 @@ extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx
         if (e.used && e.unit != unit) e.used = false;
         if (!e.used) { e.used = true; e.unit = unit; e.cur = 0; }
         if (e.cur == ecx) return;                   // sin cambio: no se registra
-        fprintf(g_f, "%lu ANIM obj=%08X modelo=%04X %u -> %u\n", (unsigned long)GetTickCount(), unit, edx >> 16, e.cur, ecx);
+        bool interesa = (ecx == 17 || ecx == 85 || ecx == 88 || ecx == 87 || ecx == 16 || ecx == 57 || ecx == 212 || ecx == 26);
+        if (interesa) {
+            uint32_t found[4]; int nf = 0;
+            for (int i = 0; i < 40 && nf < 4; i++) {          // pila: direcciones que parecen codigo del juego
+                uint32_t v = stk[i];
+                if (v >= 0x00401000 && v < 0x00800000) found[nf++] = v;
+            }
+            fprintf(g_f, "%lu ANIM obj=%08X modelo=%04X %u -> %u  pila=%08X %08X %08X %08X\n", (unsigned long)GetTickCount(), unit, edx >> 16,
+                    e.cur, ecx, nf > 0 ? found[0] : 0, nf > 1 ? found[1] : 0, nf > 2 ? found[2] : 0, nf > 3 ? found[3] : 0);
+        } else {
+            fprintf(g_f, "%lu ANIM obj=%08X modelo=%04X %u -> %u\n", (unsigned long)GetTickCount(), unit, edx >> 16, e.cur, ecx);
+        }
         e.cur = ecx;
         return;
     }
@@ -55,26 +66,30 @@ extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx
 asm(".globl _detour" #N "\n" \
     "_detour" #N ":\n" \
     "pushfl\n pushal\n" \
-    "pushl 44(%esp)\n" \
-    "pushl 44(%esp)\n" \
-    "pushl 28(%esp)\n" \
-    "pushl 36(%esp)\n" \
+    "leal 36(%esp), %eax\n" \
+    "pushl %eax\n" \
+    "pushl 48(%esp)\n" \
+    "pushl 48(%esp)\n" \
+    "pushl 32(%esp)\n" \
+    "pushl 40(%esp)\n" \
     "pushl $" #N "\n" \
     "call _LogCall\n" \
-    "addl $20, %esp\n" \
+    "addl $24, %esp\n" \
     "popal\n popfl\n" \
     "jmp *_g_orig+" #N "*4\n");
 #define DETOUR_SKIP(N, POP) \
 asm(".globl _detour" #N "\n" \
     "_detour" #N ":\n" \
     "pushfl\n pushal\n" \
-    "pushl 44(%esp)\n" \
-    "pushl 44(%esp)\n" \
-    "pushl 28(%esp)\n" \
-    "pushl 36(%esp)\n" \
+    "leal 36(%esp), %eax\n" \
+    "pushl %eax\n" \
+    "pushl 48(%esp)\n" \
+    "pushl 48(%esp)\n" \
+    "pushl 32(%esp)\n" \
+    "pushl 40(%esp)\n" \
     "pushl $" #N "\n" \
     "call _LogCall\n" \
-    "addl $20, %esp\n" \
+    "addl $24, %esp\n" \
     "popal\n popfl\n" \
     "cmpb $0, _g_skip+" #N "\n" \
     "je 1f\n" \
