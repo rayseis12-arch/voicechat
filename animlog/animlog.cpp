@@ -1,4 +1,4 @@
-// animlog.dll - Parche de bloqueo de animación en tiempo de ejecución (WoW 1.12.1)
+// animlog.dll - Parche activo de bloqueo de animación en memoria (WoW 1.12.1)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <cstdio>
@@ -14,14 +14,15 @@ extern "C" {
 }
 
 static FILE* g_f = nullptr;
-static volatile bool g_on = true; // Activado por defecto para aplicar la protección
+static volatile bool g_on = true; // Activado por defecto
+static volatile bool g_anim = true; // Activo para capturar AnimIdToIndex
 static const char* NAMES[] = {
     "AnimIdToIndex(00710310)", "SetActiveSpell(005ff0c0)", "ClearSlot(005ff290)",
     "SpellStart(00612320)", "UnitReset(0060abe0)",
     "CancelVisual?(0060edf0)", "ClearSlotA(0060d150)", "ClearSlotB(005ff320)", "ClearSlotC(00614150)", "ForcedAnim?(0060ce70)"
 };
 
-// Estructura de estado global para controlar la animación protegida
+// Estado para rastrear y proteger la animación del personaje
 static struct {
     uint32_t unit;
     uint32_t currentAnim;
@@ -29,7 +30,7 @@ static struct {
 } g_playerAnimState = {0, 0, 0};
 
 extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx, uint32_t a1, uint32_t a2, uint32_t* stk) {
-    if (!g_on) return;
+    if (!g_on || !g_f) return;
 
     // Interceptamos AnimIdToIndex (id == 0)
     if (id == 0) {
@@ -37,41 +38,40 @@ extern "C" __attribute__((used)) void LogCall(int id, uint32_t ecx, uint32_t edx
         if (a2 < 0x01000000 || (a2 & 7) != 0) return;
 
         uint32_t unit = a2;
-        uint32_t requestedAnim = ecx;
         DWORD now = GetTickCount();
 
-        // Si la unidad es nuestro personaje (actualizamos la referencia activa)
+        // Identificamos al jugador (primeras ejecuciones o unidad coincidente)
         if (g_playerAnimState.unit == 0 || g_playerAnimState.unit == unit) {
             g_playerAnimState.unit = unit;
 
-            // 1. Si se solicita la animación de la habilidad (212 o 26)
-            if (requestedAnim == 212 || requestedAnim == 26) {
-                g_playerAnimState.currentAnim = requestedAnim;
-                // Asignamos una ventana de protección de 650 ms para la animación
-                g_playerAnimState.protectUntil = now + 650;
+            // 1. Cuando lanzas la habilidad (IDs de animación 212 o 26)
+            if (ecx == 212 || ecx == 26) {
+                g_playerAnimState.currentAnim = ecx;
+                g_playerAnimState.protectUntil = now + 700; // 700ms de ventana blindada
+                fprintf(g_f, "%lu [PROTECCIÓN] Habilidad %u iniciada (Protegida hasta %lu)\n", now, ecx, g_playerAnimState.protectUntil);
+                fflush(g_f);
+                return;
+            }
 
-                if (g_f) {
-                    fprintf(g_f, "%lu [BLOQUEO ACTIVADO] Habilidad %u iniciada (Protección hasta %lu)\n", 
-                            now, requestedAnim, g_playerAnimState.protectUntil);
+            // 2. Si el motor intenta pisarla con auto-ataque (85 u 88) durante la ventana protegida
+            if ((ecx == 85 || ecx == 88) && now < g_playerAnimState.protectUntil) {
+                fprintf(g_f, "%lu [BLOQUEO MEMORIA] Intento de corte por %u evitado. Forzando animación %u\n", 
+                        now, ecx, g_playerAnimState.currentAnim);
+                fflush(g_f);
+
+                // SOBREESCRIBIMOS EL REGISTRO ECX DIRECTAMENTE EN LA PILA (pushal slot)
+                // stk - 3 apunta exactamente al slot de ECX guardado por pushal.
+                // Al hacer popal, el juego cargará nuestra animación en lugar del ataque automático.
+                if (stk) {
+                    uint32_t* saved_ecx_slot = stk - 3;
+                    *saved_ecx_slot = g_playerAnimState.currentAnim;
                 }
                 return;
             }
 
-            // 2. Si intenta sobreescribir con auto-ataque (85 u 88) mientras la protección está activa
-            if ((requestedAnim == 85 || requestedAnim == 88) && now < g_playerAnimState.protectUntil) {
-                if (g_f) {
-                    fprintf(g_f, "%lu [INTERCEPTADO] Se bloqueó el corte de animación %u por auto-ataque %u\n", 
-                            now, g_playerAnimState.currentAnim, requestedAnim);
-                }
-                // DENEGAMOS la actualización a la ranura: sobreescribimos ECX con la animación protegida
-                // Esto fuerza al motor a mantener la animación de la habilidad en pantalla
-                ecx = g_playerAnimState.currentAnim;
-                return;
-            }
-
-            // Si expiró el tiempo de protección, actualizamos el estado
+            // Si la protección expiró, actualizamos normalmente
             if (now >= g_playerAnimState.protectUntil) {
-                g_playerAnimState.currentAnim = requestedAnim;
+                g_playerAnimState.currentAnim = ecx;
             }
         }
     }
